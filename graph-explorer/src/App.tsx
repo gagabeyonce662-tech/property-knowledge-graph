@@ -1,6 +1,9 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import ForceGraph2D from 'react-force-graph-2d'
 import { Search, Layers, X, Target, FileCode, FileText, ImageIcon, Box, Database, Monitor, Globe, Code2, Loader2, Menu } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import unifiedGraph from './data/unified.json'
 import backendGraph from './data/backend.json'
 import frontendGraph from './data/frontend.json'
@@ -13,6 +16,22 @@ const COMMUNITY_COLORS = [
   "#38bdf8", "#818cf8", "#c084fc", "#fb7185", "#fb923c", "#facc15", "#4ade80", "#2dd4bf",
   "#a78bfa", "#f472b6", "#94a3b8", "#60a5fa", "#f87171", "#fbbf24", "#34d399", "#fb923c",
 ];
+
+const getLanguage = (filename: string) => {
+    const ext = filename.split('.').pop()?.toLowerCase();
+    switch (ext) {
+        case 'ts': case 'tsx': return 'typescript';
+        case 'js': case 'jsx': return 'javascript';
+        case 'py': return 'python';
+        case 'css': return 'css';
+        case 'html': return 'html';
+        case 'json': return 'json';
+        case 'md': return 'markdown';
+        case 'sh': case 'bash': return 'bash';
+        case 'yml': case 'yaml': return 'yaml';
+        default: return 'text';
+    }
+};
 
 interface Node {
   id: string;
@@ -38,11 +57,56 @@ function App() {
   const [labelDensity, setLabelDensity] = useState<number>(1.2)
   const [focusLevel, setFocusLevel] = useState<number>(0)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [sidebarWidth, setSidebarWidth] = useState(320)
+  const [isResizing, setIsResizing] = useState(false)
+  const [detailsWidth, setDetailsWidth] = useState(440)
+  const [isResizingDetails, setIsResizingDetails] = useState(false)
+  const [activeSearchIndex, setActiveSearchIndex] = useState(-1)
   const [windowSize, setWindowSize] = useState({ width: window.innerWidth, height: window.innerHeight })
   
   // Code snippet state
   const [codeSnippet, setCodeSnippet] = useState<{snippet: string, startLine: number, targetLine: number} | null>(null);
   const [isLoadingCode, setIsLoadingCode] = useState(false);
+  const codeContainerRef = useRef<HTMLDivElement>(null);
+
+  // Resize sidebar logic
+  const startResizing = useCallback(() => {
+    setIsResizing(true);
+  }, []);
+
+  const stopResizing = useCallback(() => {
+    setIsResizing(false);
+    setIsResizingDetails(false);
+  }, []);
+
+  const resize = useCallback((e: MouseEvent) => {
+    if (isResizing) {
+        const newWidth = e.clientX;
+        if (newWidth > 200 && newWidth < window.innerWidth * 0.6) {
+            setSidebarWidth(newWidth);
+        }
+    } else if (isResizingDetails) {
+        const newWidth = window.innerWidth - e.clientX - 24;
+        if (newWidth > 300 && newWidth < window.innerWidth * 0.8) {
+            setDetailsWidth(newWidth);
+        }
+    }
+  }, [isResizing, isResizingDetails]);
+
+  useEffect(() => {
+    window.addEventListener('mousemove', resize);
+    window.addEventListener('mouseup', stopResizing);
+    return () => {
+        window.removeEventListener('mousemove', resize);
+        window.removeEventListener('mouseup', stopResizing);
+    };
+  }, [resize, stopResizing]);
+
+  // Viewport size for graph
+  const graphWidth = useMemo(() => {
+    if (windowSize.width <= 768) return windowSize.width;
+    return windowSize.width - sidebarWidth;
+  }, [windowSize.width, sidebarWidth]);
 
   // Resize listener
   useEffect(() => {
@@ -72,6 +136,19 @@ function App() {
         setCodeSnippet(null);
     }
   }, [selectedNode]);
+
+  // Scroll to target line when code snippet changes
+  useEffect(() => {
+    if (codeSnippet && codeContainerRef.current) {
+        // Wait a tiny bit for the syntax highlighter to finish rendering
+        setTimeout(() => {
+            const targetEl = codeContainerRef.current?.querySelector('.highlight-line');
+            if (targetEl) {
+                targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }, 100);
+    }
+  }, [codeSnippet]);
 
   // Determine which dataset to use
   const activeDataset = useMemo(() => {
@@ -108,6 +185,22 @@ function App() {
     return { nodes, links };
   }, [activeDataset]);
 
+  const searchResults = useMemo(() => {
+    if (!searchTerm.trim()) return [];
+    const term = searchTerm.toLowerCase();
+    return data.nodes
+      .filter(node => 
+        node.label.toLowerCase().includes(term) || 
+        node.source_file.toLowerCase().includes(term)
+      )
+      .slice(0, 50);
+  }, [data.nodes, searchTerm]);
+
+  // Reset search index when results change
+  useEffect(() => {
+    setActiveSearchIndex(searchResults.length > 0 ? 0 : -1);
+  }, [searchResults]);
+
   const communities = useMemo(() => {
     const counts: Record<number, number> = {}
     data.nodes.forEach(n => {
@@ -130,11 +223,30 @@ function App() {
 
   const handleNodeClick = useCallback((node: any) => {
     setSelectedNode(node);
+    setSearchTerm(''); // Clear search when a node is selected
     if (fgRef.current) {
         fgRef.current.centerAt(node.x, node.y, 400);
         fgRef.current.zoom(1.8, 400);
     }
   }, []);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (searchResults.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setActiveSearchIndex(prev => (prev + 1) % searchResults.length);
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setActiveSearchIndex(prev => (prev - 1 + searchResults.length) % searchResults.length);
+    } else if (e.key === 'Enter') {
+        if (activeSearchIndex >= 0 && activeSearchIndex < searchResults.length) {
+            handleNodeClick(searchResults[activeSearchIndex]);
+        }
+    } else if (e.key === 'Escape') {
+        setSearchTerm('');
+    }
+  };
 
   const getIconForType = (type: string) => {
     switch (type) {
@@ -155,14 +267,17 @@ function App() {
   };
 
   return (
-    <div className="graph-container">
+    <div className={`graph-container ${isResizing || isResizingDetails ? 'resizing' : ''}`}>
       {/* Mobile Menu Toggle */}
       <button className="mobile-menu-btn" onClick={() => setIsMenuOpen(!isMenuOpen)}>
         {isMenuOpen ? <X size={20} /> : <Menu size={20} />}
       </button>
 
       {/* Sidebar with mobile state */}
-      <div className={`sidebar ${isMenuOpen ? 'open' : ''}`}>
+      <div 
+        className={`sidebar ${isMenuOpen ? 'open' : ''}`}
+        style={{ width: windowSize.width > 768 ? `${sidebarWidth}px` : undefined }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
             <div style={{ background: '#38bdf8', padding: 8, borderRadius: 8 }}>
                 <Target size={20} color="black" />
@@ -215,14 +330,39 @@ function App() {
         
         <div className="search-container" style={{ marginTop: 12 }}>
           <div style={{ position: 'relative' }}>
-            <Search size={16} style={{ position: 'absolute', left: 12, top: 12, color: '#64748b' }} />
+            <Search size={16} style={{ position: 'absolute', left: 12, top: 12, color: '#64748b', zIndex: 10 }} />
             <input 
               className="search-input"
               style={{ paddingLeft: 36 }}
               placeholder={`Search ${workspace}...`}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              onKeyDown={handleKeyDown}
             />
+            {searchTerm && (
+                <div className="search-results-dropdown">
+                    {searchResults.length > 0 ? (
+                        searchResults.map((node, index) => (
+                            <div 
+                                key={node.id}
+                                className={`search-result-item ${index === activeSearchIndex ? 'active' : ''}`}
+                                onClick={() => handleNodeClick(node)}
+                                onMouseEnter={() => setActiveSearchIndex(index)}
+                            >
+                                <div className="search-result-icon">
+                                    {getIconForType(node.file_type)}
+                                </div>
+                                <div className="search-result-content">
+                                    <div className="search-result-label">{node.label}</div>
+                                    <div className="search-result-path">{node.source_file}</div>
+                                </div>
+                            </div>
+                        ))
+                    ) : (
+                        <div className="search-no-results">No matches found for "{searchTerm}"</div>
+                    )}
+                </div>
+            )}
           </div>
         </div>
 
@@ -230,7 +370,7 @@ function App() {
           <Layers size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
           Functional Communities
         </div>
-        <div className="community-list" style={{ flex: 1, overflowY: 'auto' }}>
+        <div className="community-list">
           <div 
             className="community-item" 
             style={{ fontWeight: highlightCommunity === null ? 600 : 400 }}
@@ -262,8 +402,24 @@ function App() {
         </div>
       </div>
 
+      {windowSize.width > 768 && (
+          <div 
+            className={`resizer ${isResizing ? 'resizing' : ''}`} 
+            onMouseDown={startResizing}
+          />
+      )}
+
       {selectedNode && (
-        <div className="node-details animate-in">
+        <div 
+          className="node-details animate-in"
+          style={{ width: windowSize.width > 768 ? `${detailsWidth}px` : '100%' }}
+        >
+          {windowSize.width > 768 && (
+            <div 
+                className={`details-resizer ${isResizingDetails ? 'resizing' : ''}`} 
+                onMouseDown={() => setIsResizingDetails(true)}
+            />
+          )}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                  {getIconForType(selectedNode.file_type)}
@@ -310,24 +466,44 @@ function App() {
             <div className="section-title" style={{ marginTop: 0, paddingBottom: 8 }}>
                 <Code2 size={12} style={{ marginRight: 6 }} /> Source Preview
             </div>
-            <div className="code-block">
+            <div className="code-block" ref={codeContainerRef}>
                 {isLoadingCode ? (
                     <div className="code-loader">
                         <Loader2 size={24} className="spin" />
                     </div>
                 ) : (codeSnippet && codeSnippet.snippet) ? (
-                    <pre>
-                        {codeSnippet.snippet.split('\n').map((line, i) => {
-                            const lineNum = codeSnippet.startLine + i;
-                            const isTarget = lineNum === codeSnippet.targetLine;
-                            return (
-                                <div key={i} className={`code-line ${isTarget ? 'highlight' : ''}`}>
-                                    <span className="line-number">{lineNum}</span>
-                                    <span className="line-content">{line}</span>
-                                </div>
-                            );
-                        })}
-                    </pre>
+                    getLanguage(selectedNode.source_file) === 'markdown' ? (
+                        <div className="markdown-body">
+                            <ReactMarkdown>{codeSnippet.snippet}</ReactMarkdown>
+                        </div>
+                    ) : (
+                        <SyntaxHighlighter
+                            language={getLanguage(selectedNode.source_file)}
+                            style={atomDark}
+                            showLineNumbers={true}
+                            startingLineNumber={codeSnippet.startLine}
+                            wrapLines={true}
+                            lineProps={(lineNumber) => {
+                                let style: React.CSSProperties = { display: 'block' };
+                                if (lineNumber === codeSnippet.targetLine) {
+                                    return { 
+                                        style: { ...style, backgroundColor: 'rgba(56, 189, 248, 0.2)', borderLeft: '3px solid #38bdf8' },
+                                        className: 'highlight-line'
+                                    };
+                                }
+                                return { style };
+                            }}
+                            customStyle={{
+                                margin: 0,
+                                padding: '16px',
+                                background: 'transparent',
+                                fontSize: '0.8rem',
+                                lineHeight: '1.5'
+                            }}
+                        >
+                            {codeSnippet.snippet}
+                        </SyntaxHighlighter>
+                    )
                 ) : (
                     <div className="code-empty">No preview available</div>
                 )}
@@ -356,7 +532,7 @@ function App() {
       <ForceGraph2D
         ref={fgRef}
         graphData={data}
-        width={windowSize.width}
+        width={graphWidth}
         height={windowSize.height}
         nodeLabel="label"
         nodeCanvasObject={(node: any, ctx, globalScale) => {

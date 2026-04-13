@@ -312,9 +312,18 @@ export async function fetchPropertyByKey(
   propertyKey: string,
 ): Promise<Property | null> {
   try {
-    if (propertyKey.startsWith("precon_") || propertyKey.startsWith("property-")) {
-      if (propertyKey.startsWith("precon_")) {
-        const idStr = propertyKey.replace("precon_", "");
+    if (
+      propertyKey.startsWith("precon_") ||
+      propertyKey.startsWith("wp_precon_") ||
+      propertyKey.startsWith("property-")
+    ) {
+      if (
+        propertyKey.startsWith("precon_") ||
+        propertyKey.startsWith("wp_precon_")
+      ) {
+        const idStr = propertyKey
+          .replace("precon_", "")
+          .replace("wp_precon_", "");
         return await fetchWPPreconPropertyAction(idStr);
       }
       // Synthetic key from CompareContext, just return null

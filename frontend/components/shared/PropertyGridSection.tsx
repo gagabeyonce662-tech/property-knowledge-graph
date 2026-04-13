@@ -130,11 +130,7 @@ export function PropertyGridSection({
             : displayProperties.length > 0
               ? displayProperties.map((property, index) => (
                 <div
-                  key={
-                    property.listing_key ||
-                    property.PropertyKey ||
-                    `${title}-${index}`
-                  }
+                  key={`${title}-${property.listing_key || property.PropertyKey || index}-${index}`}
                   className={`w-full ${getResponsiveVisibility(index)}`}
                 >
                   <PropertyCard

@@ -55,9 +55,9 @@ export default function LatestArticles() {
                 <Image
                   src={article.thumbnail || "https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=400&q=80"}
                   alt={article.title}
-                  width={400}
-                  height={224}
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                  fill
+                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 25vw"
+                  className="object-cover group-hover:scale-110 transition-transform duration-300"
                 />
                 <div className="absolute top-4 left-4">
                   <span className="bg-yellow-400 text-gray-900 px-3 py-1 rounded text-xs font-bold">

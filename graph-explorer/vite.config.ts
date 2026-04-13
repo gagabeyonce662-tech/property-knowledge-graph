@@ -29,15 +29,11 @@ export default defineConfig({
               const lines = content.split('\n');
 
               const targetLine = lineStr ? parseInt(lineStr.replace('L', '')) : 1;
-              const start = Math.max(0, targetLine - 10);
-              const end = Math.min(lines.length, targetLine + 50);
               
-              const snippet = lines.slice(start, end).join('\n');
-
               res.setHeader('Content-Type', 'application/json');
               res.end(JSON.stringify({
-                snippet,
-                startLine: start + 1,
+                snippet: content,
+                startLine: 1,
                 targetLine
               }));
             } catch (err) {
